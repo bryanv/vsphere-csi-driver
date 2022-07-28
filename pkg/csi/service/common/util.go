@@ -421,12 +421,33 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 		clusterComputeResourceMoIds []string
 	)
 	for _, az := range azList.Items {
+		// Prefer the plural MoIDs field but fallback to the singleton MoId field if that is empty.
 		clusterComputeResourceMoIdSlice, found, err := unstructured.NestedStringSlice(az.Object, "spec",
 			"clusterComputeResourceMoIDs")
-		if !found || err != nil {
+		if err != nil {
 			return nil, fmt.Errorf("failed to get ClusterComputeResourceMoIDs "+
 				"from AvailabilityZone instance: %+v, err:%+v", az.Object, err)
 		}
+
+		if !found || len(clusterComputeResourceMoIdSlice) == 0 {
+			log.Infof("AvailabilityZone %s clusterComputeResourceMoIDs is empty, falling back to MoId field",
+				az.GetName())
+
+			moId, found, err := unstructured.NestedString(az.Object, "spec", "clusterComputeResourceMoId")
+			if !found || err != nil {
+				return nil, fmt.Errorf("failed to get ClusterComputeResourceMoId "+
+					"from AvailabilityZone instance: %+v, err:%+v", az.Object, err)
+			}
+
+			if moId == "" {
+				// Unexpected: AZ CR should not exist with both CCR MoID fields unset.
+				return nil, fmt.Errorf("both ClusterComputeResourceMoId and MoIDs unset"+
+					"in AvailabilityZone instance: %+v, err:%+v", az.Object, err)
+			}
+
+			clusterComputeResourceMoIdSlice = []string{moId}
+		}
+
 		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterComputeResourceMoIdSlice...)
 	}
 	return clusterComputeResourceMoIds, nil
